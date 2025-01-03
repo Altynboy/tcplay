@@ -1,6 +1,6 @@
 # tcplay: A Minimalist TCP Library for Go
 
-GoTCP is a lightweight TCP library built for learning and understanding TCP communication in Go. It provides essential features for creating TCP servers and clients, with support for connection management, message handling, and graceful shutdown.
+TCPlay is a lightweight TCP library built for learning and understanding TCP communication in Go. It provides essential features for creating TCP servers and clients, with support for connection management, message handling, and graceful shutdown.
 
 ## Core Features
 
