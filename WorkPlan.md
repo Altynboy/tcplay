@@ -4,13 +4,13 @@
 
 1. Raw Socket Setup
 
-   - Create raw socket interface
-   - Handle IP packet encapsulation
-   - Setup basic send/receive capabilities
+   - ✅ Create raw socket interface
+   - ✅ Handle IP packet encapsulation
+   - ✅ Setup basic send/receive capabilities
 
 2. TCP Header Implementation
-   - Design header structure
-   - Implement header serialization/deserialization
+   - ✅ Design header structure
+   - ✅ Implement header serialization/deserialization
    - Create checksum calculation
    - Handle network byte order (big-endian)
 
