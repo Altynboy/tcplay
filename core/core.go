@@ -10,7 +10,7 @@ type TCPHeader struct {
 	DestPort     uint16
 	SeqNum       uint32
 	AckNum       uint32
-	HeaderLen    uint8
+	HeaderLen    uint8 // 4 bit field
 	ControlFlags uint8
 	WindowSize   uint16
 	Checksum     uint16

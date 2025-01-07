@@ -83,7 +83,7 @@ func (c *TCPConnection) waitForFIN() error {
 	return nil
 }
 
-func (c *TCPConnection) calculateChecksum(header *TCPHeader) uint16 {
+// func (c *TCPConnection) calculateChecksum(header *TCPHeader) uint16 {
 
-	return uint16(0)
-}
+// 	return uint16(0)
+// }
