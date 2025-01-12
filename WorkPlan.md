@@ -11,8 +11,8 @@
 2. TCP Header Implementation
    - ✅ Design header structure
    - ✅ Implement header serialization/deserialization
-   - Create checksum calculation
-   - Handle network byte order (big-endian)
+   - ✅ Create checksum calculation
+   - ✅ Handle network byte order (big-endian)
 
 ## Phase 2: Connection Management
 
