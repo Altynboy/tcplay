@@ -4,21 +4,12 @@ import (
 	"fmt"
 	"log"
 	"syscall"
+	"tcplay/components/waiter"
+	"tcplay/protocol"
+	"time"
 
 	"math/rand"
 )
-
-type TCPHeader struct {
-	SourcePort   uint16
-	DestPort     uint16
-	SeqNum       uint32
-	AckNum       uint32
-	HeaderLen    uint8 // 4 bit field
-	ControlFlags uint8
-	WindowSize   uint16
-	Checksum     uint16
-	UrgentPtr    uint16
-}
 
 type TCPConnection struct {
 	srcPort    uint16
@@ -33,14 +24,6 @@ type TCPConnection struct {
 	sendBuf    []byte
 	maxSegSize uint16
 }
-
-const (
-	ACK = 16 // 0001 0000
-	PSH = 8  // 0000 1000
-	RST = 4  // 0000 0100
-	SYN = 2  // 0000 0010
-	FIN = 1  // 0000 0001
-)
 
 const (
 	CLOSED      = 0
@@ -72,17 +55,21 @@ func CreateConnection(destPort uint16, destIP [4]byte) (*TCPConnection, error) {
 }
 
 func (c *TCPConnection) Connect() error {
-	synHeader := &TCPHeader{
+	synHeader := &protocol.TCPHeader{
 		SourcePort:   c.srcPort,
 		DestPort:     c.destPort,
 		SeqNum:       c.seqNum,
-		ControlFlags: SYN,
+		ControlFlags: protocol.SYN,
 		WindowSize:   65535,
 		HeaderLen:    5,
 	}
 
 	log.Println("Prepare SYN packet for send")
 
+	syncW := waiter.NewPacketChannels(c.ReceivePacket)
+	syncW.StartReceive()
+
+	time.Sleep(1 * time.Second)
 	// Send SYN
 	if err := c.sendPacket(synHeader); err != nil {
 		return fmt.Errorf("failed to send SYN: %v", err)
@@ -93,27 +80,26 @@ func (c *TCPConnection) Connect() error {
 	c.state = SYN_SENT
 
 	log.Println("Wait for SYN-ACK")
+
 	// Wait for SYN-ACK
-	resp, err := c.receivePacket()
+	resp, err := syncW.WaitForSynAck()
 	if err != nil {
-		return fmt.Errorf("failed to receive SYN-ACK: %v", err)
-	}
-	if resp.ControlFlags != (SYN | ACK) {
-		return fmt.Errorf("expected SYN-ACK, got different flags: %d", resp.ControlFlags)
+		return err
 	}
 
 	log.Println("prepare for send ACK")
 	// Send ACK
-	c.ackNum = resp.AckNum + 1
+	c.ackNum = resp.SeqNum + 1
 	c.seqNum = c.seqNum + 1
 
-	ackHeader := &TCPHeader{
+	ackHeader := &protocol.TCPHeader{
 		SourcePort:   c.srcPort,
 		DestPort:     c.destPort,
 		AckNum:       c.ackNum,
 		SeqNum:       c.seqNum,
-		ControlFlags: ACK,
+		ControlFlags: protocol.ACK,
 		WindowSize:   65535,
+		HeaderLen:    5,
 	}
 	log.Printf("ACK header")
 	if err := c.sendPacket(ackHeader); err != nil {
@@ -130,47 +116,56 @@ func (c *TCPConnection) SendMessage(data []byte) error {
 		return fmt.Errorf("connection is not established")
 	}
 
-	dataHeader := &TCPHeader{
+	dataHeader := &protocol.TCPHeader{
 		SourcePort:   c.srcPort,
 		DestPort:     c.destPort,
 		AckNum:       c.ackNum,
 		SeqNum:       c.seqNum,
-		ControlFlags: PSH | ACK,
+		ControlFlags: protocol.PSH | protocol.ACK,
 		WindowSize:   0xffff,
+		HeaderLen:    5,
 	}
 
 	if err := c.sendPacketWithPayload(dataHeader, data); err != nil {
-		return fmt.Errorf("failed to send pavket with payload: %v", err)
+		return fmt.Errorf("failed to send packet with payload: %v", err)
 	}
 
 	return nil
 }
 
 func (c *TCPConnection) Close() error {
+	log.Println("-----CLOSE CONN-----")
 	if c.state != ESTABLISHED {
 		return fmt.Errorf("connection is not established")
 	}
 
 	// Send FIN
-	finHeader := &TCPHeader{
+	finHeader := &protocol.TCPHeader{
 		SourcePort:   c.srcPort,
 		DestPort:     c.destPort,
-		SeqNum:       c.seqNum,
+		SeqNum:       c.seqNum + 1,
 		AckNum:       c.ackNum,
-		ControlFlags: FIN,
+		ControlFlags: protocol.FIN,
 		WindowSize:   65535,
+		HeaderLen:    5,
 	}
+
+	waitC := waiter.NewPacketChannels(c.ReceivePacket)
+	waitC.StartReceive()
+	waitF := waiter.NewPacketChannels(c.ReceivePacket)
 
 	if err := c.sendPacket(finHeader); err != nil {
 		return fmt.Errorf("failed to send FIN: %v", err)
 	}
 
-	// Wait for ACK and FIN
-	if err := c.waitForACK(); err != nil {
+	_, err := waitC.WaitForAck()
+	if err != nil {
 		return fmt.Errorf("failed to receive ACK for FIN: %v", err)
 	}
+	waitF.StartReceive()
 
-	if err := c.waitForFIN(); err != nil {
+	resp, err := waitC.WaitForFin()
+	if err != nil {
 		return fmt.Errorf("failed to receive FIN: %v", err)
 	}
 
@@ -178,14 +173,18 @@ func (c *TCPConnection) Close() error {
 		return fmt.Errorf("failed to close socket: %v", err)
 	}
 
+	c.seqNum++
+	c.ackNum = resp.SeqNum + 1
+
 	// Send ACK
-	ackHeader := &TCPHeader{
+	ackHeader := &protocol.TCPHeader{
 		SourcePort:   c.srcPort,
 		DestPort:     c.destPort,
 		SeqNum:       c.seqNum,
-		AckNum:       c.ackNum + 1,
-		ControlFlags: ACK,
+		AckNum:       c.ackNum,
+		ControlFlags: protocol.ACK,
 		WindowSize:   65535,
+		HeaderLen:    5,
 	}
 
 	if err := c.sendPacket(ackHeader); err != nil {

@@ -6,10 +6,11 @@ import (
 	"log"
 	"math/rand"
 	"syscall"
+	"tcplay/protocol"
 	"time"
 )
 
-func (c *TCPConnection) sendPacket(header *TCPHeader) error {
+func (c *TCPConnection) sendPacket(header *protocol.TCPHeader) error {
 	header.Checksum = c.calculateChecksum(header, nil, c.srcIP, c.destIP)
 
 	log.Printf("Sending packet: %+v", header)
@@ -40,35 +41,31 @@ func (c *TCPConnection) sendPacket(header *TCPHeader) error {
 	return nil
 }
 
-func (c *TCPConnection) receivePacket() (*TCPHeader, error) {
+func (c *TCPConnection) ReceivePacket() (*protocol.TCPHeader, error) {
 	buf := make([]byte, 65535)
 	for {
-		log.Println("Receiving package")
 		n, _, err := syscall.Recvfrom(c.rawSocket, buf, 0)
 		if err != nil {
 			return nil, fmt.Errorf("failed to receive packet: %v", err)
 		}
 
-		log.Printf("%d packet send", n)
 		if n < 20 {
 			continue
 		}
 
 		ipHeaderLen := int(buf[0]&0x0F) * 4
 		if n < ipHeaderLen+20 {
-			log.Println("packet less that ipHeaderLen")
 			continue
 		}
 
 		ipProtocol := buf[9]
 		if ipProtocol != 6 { // TCP protocol number
-			log.Println("protocol not TCP")
 			continue
 		}
 
 		tcpHeaderData := buf[ipHeaderLen : ipHeaderLen+20]
 
-		tcpHeader := &TCPHeader{
+		tcpHeader := &protocol.TCPHeader{
 			SourcePort:   binary.BigEndian.Uint16(tcpHeaderData[0:2]),
 			DestPort:     binary.BigEndian.Uint16(tcpHeaderData[2:4]),
 			SeqNum:       binary.BigEndian.Uint32(tcpHeaderData[4:8]),
@@ -80,23 +77,16 @@ func (c *TCPConnection) receivePacket() (*TCPHeader, error) {
 			UrgentPtr:    binary.BigEndian.Uint16(tcpHeaderData[18:20]),
 		}
 
-		log.Printf("Sending packet: %+v\n", tcpHeader)
-
 		if tcpHeader.SourcePort == c.destPort && tcpHeader.DestPort == c.srcPort {
+			log.Printf("Received packet: %+v\n", tcpHeader)
 			return tcpHeader, nil
 		}
 	}
 }
 
-func (c *TCPConnection) waitForACK() error {
-	return nil
-}
+func (c *TCPConnection) sendPacketWithPayload(header *protocol.TCPHeader, payload []byte) error {
+	log.Printf("Sending packet with payload:\n %+v", header)
 
-func (c *TCPConnection) waitForFIN() error {
-	return nil
-}
-
-func (c *TCPConnection) sendPacketWithPayload(header *TCPHeader, payload []byte) error {
 	headerBytes := header.Serialize()
 
 	packet := append(headerBytes, payload...)
@@ -113,34 +103,10 @@ func (c *TCPConnection) sendPacketWithPayload(header *TCPHeader, payload []byte)
 	return nil
 }
 
-// func (c *TCPConnection) calculateChecksum(header *TCPHeader) uint16 {
+// func (c *TCPConnection) calculateChecksum(header *protocol.TCPHeader) uint16 {
 
 // 	return uint16(0)
 // }
-
-func (h *TCPHeader) Serialize() []byte {
-	header := make([]byte, 20) // Minimum TCP header size
-
-	// Fill in the fields
-	binary.BigEndian.PutUint16(header[0:2], h.SourcePort)
-	binary.BigEndian.PutUint16(header[2:4], h.DestPort)
-	binary.BigEndian.PutUint32(header[4:8], h.SeqNum)
-	binary.BigEndian.PutUint32(header[8:12], h.AckNum)
-
-	// Data offset (5 for no options) and flags
-	header[12] = (5 << 4) // Data offset (5 * 4 = 20 bytes header)
-	header[13] = byte(h.ControlFlags)
-
-	binary.BigEndian.PutUint16(header[14:16], h.WindowSize)
-	binary.BigEndian.PutUint16(header[16:18], 0) // Checksum placeholder
-	binary.BigEndian.PutUint16(header[18:20], h.UrgentPtr)
-
-	// Compute checksum (pseudo-header + TCP header + payload)
-	// checksum := computeChecksum(header)
-	// binary.BigEndian.PutUint16(header[16:18], checksum)
-
-	return header
-}
 
 func generateRandomSeqNum() uint32 {
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))

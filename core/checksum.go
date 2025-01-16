@@ -3,6 +3,7 @@ package core
 import (
 	"encoding/binary"
 	"fmt"
+	"tcplay/protocol"
 )
 
 // 0      7 8     15 16    23 24    31
@@ -22,7 +23,7 @@ type IPPseudoHeader struct {
 	Length   uint16 // TCP header + data length
 }
 
-func (c *TCPConnection) calculateChecksum(header *TCPHeader, data []byte, srcIP [4]byte, destIP [4]byte) uint16 {
+func (c *TCPConnection) calculateChecksum(header *protocol.TCPHeader, data []byte, srcIP [4]byte, destIP [4]byte) uint16 {
 	if header.Checksum != 0 {
 		fmt.Println("TCP header should be with zero checksum")
 		return 0
