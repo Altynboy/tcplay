@@ -125,6 +125,7 @@ func handleConnection(conn net.Conn, id string, tracker *ConnectionTracker, logg
 
 		// Log received data
 		logger.Printf("Received %d bytes from %s: %s", n, id, string(buffer[:n]))
+		logger.Printf("Received %d bytes from %s: %s", n, id, buffer[:n])
 
 		// Echo the data back (example response)
 		_, err = conn.Write(buffer[:n])

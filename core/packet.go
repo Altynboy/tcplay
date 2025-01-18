@@ -6,11 +6,14 @@ import (
 	"log"
 	"math/rand"
 	"syscall"
+	"tcplay/core/ip"
 	"tcplay/protocol"
 	"time"
 )
 
 func (c *TCPConnection) sendPacket(header *protocol.TCPHeader) error {
+	ipHeader := c.ipHeader.Marshall()
+
 	header.Checksum = c.calculateChecksum(header, nil, c.srcIP, c.destIP)
 
 	log.Printf("Sending packet: %+v", header)
@@ -34,7 +37,9 @@ func (c *TCPConnection) sendPacket(header *protocol.TCPHeader) error {
 	// mssOption := []byte{0x02, 0x04, 0x05, 0xb4}
 	// buf = append(buf, mssOption...)
 
-	if err := syscall.Sendto(c.rawSocket, buf, 0, addr); err != nil {
+	packet := append(ipHeader, buf...)
+
+	if err := syscall.Sendto(c.rawSocket, packet, 0, addr); err != nil {
 		return fmt.Errorf("failed to send packet: %v", err)
 	}
 
@@ -42,6 +47,29 @@ func (c *TCPConnection) sendPacket(header *protocol.TCPHeader) error {
 }
 
 func (c *TCPConnection) ReceivePacket() (*protocol.TCPHeader, error) {
+	tcpHeaderData := ip.ReceivePacket(c.rawSocket)
+
+	tcpHeader := &protocol.TCPHeader{
+		SourcePort:   binary.BigEndian.Uint16(tcpHeaderData[0:2]),
+		DestPort:     binary.BigEndian.Uint16(tcpHeaderData[2:4]),
+		SeqNum:       binary.BigEndian.Uint32(tcpHeaderData[4:8]),
+		AckNum:       binary.BigEndian.Uint32(tcpHeaderData[8:12]),
+		HeaderLen:    tcpHeaderData[12] >> 4,
+		ControlFlags: tcpHeaderData[13] & 0x3F,
+		WindowSize:   binary.BigEndian.Uint16(tcpHeaderData[14:16]),
+		Checksum:     binary.BigEndian.Uint16(tcpHeaderData[16:18]),
+		UrgentPtr:    binary.BigEndian.Uint16(tcpHeaderData[18:20]),
+	}
+
+	if tcpHeader.SourcePort == c.destPort && tcpHeader.DestPort == c.srcPort {
+		log.Printf("Received packet: %+v\n", tcpHeader)
+		return tcpHeader, nil
+	}
+
+	return nil, fmt.Errorf("no packet send")
+}
+
+func (c *TCPConnection) ReceiveTCPPacket() (*protocol.TCPHeader, error) {
 	buf := make([]byte, 65535)
 	for {
 		n, _, err := syscall.Recvfrom(c.rawSocket, buf, 0)

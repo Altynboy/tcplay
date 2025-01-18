@@ -5,6 +5,7 @@ import (
 	"log"
 	"syscall"
 	"tcplay/components/waiter"
+	"tcplay/core/ip"
 	"tcplay/protocol"
 	"time"
 
@@ -23,6 +24,7 @@ type TCPConnection struct {
 	receiveBuf []byte
 	sendBuf    []byte
 	maxSegSize uint16
+	ipHeader   ip.IPHeader
 }
 
 const (
@@ -36,9 +38,28 @@ func CreateConnection(destPort uint16, destIP [4]byte) (*TCPConnection, error) {
 	srcIP := [4]byte{127, 0, 0, 1}
 
 	// Create raw socket
-	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_RAW, syscall.IPPROTO_TCP)
+	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_RAW, syscall.IPPROTO_RAW)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create socket: %v", err)
+	}
+
+	err = syscall.SetsockoptInt(fd, syscall.IPPROTO_IP, syscall.IP_HDRINCL, 1)
+	if err != nil {
+		log.Printf("Setsockopt error: %v\n", err)
+		return nil, fmt.Errorf("failed to Setsockopt: %v", err)
+	}
+
+	// Create IP header
+	ipHeader := &ip.IPHeader{
+		Version:  4,                   // IPv4
+		IHL:      5,                   // 5 x 32-bit words
+		TOS:      0,                   // Type of Service
+		TotalLen: 20,                  // Header length
+		ID:       1,                   // Identification
+		TTL:      64,                  // Time to Live
+		Protocol: syscall.IPPROTO_TCP, // TCP protocol
+		SrcAddr:  srcIP,
+		DstAddr:  destIP,
 	}
 
 	return &TCPConnection{
@@ -51,6 +72,7 @@ func CreateConnection(destPort uint16, destIP [4]byte) (*TCPConnection, error) {
 		state:      CLOSED,
 		rawSocket:  fd,
 		maxSegSize: 1460,
+		ipHeader:   *ipHeader,
 	}, nil
 }
 
@@ -62,6 +84,14 @@ func (c *TCPConnection) Connect() error {
 		ControlFlags: protocol.SYN,
 		WindowSize:   65535,
 		HeaderLen:    5,
+	}
+
+	addr := &syscall.SockaddrInet4{
+		Port: 42069,
+		Addr: [4]byte{127, 0, 0, 1},
+	}
+	if err := syscall.Connect(c.rawSocket, addr); err != nil {
+		return err
 	}
 
 	log.Println("Prepare SYN packet for send")
@@ -101,6 +131,7 @@ func (c *TCPConnection) Connect() error {
 		WindowSize:   65535,
 		HeaderLen:    5,
 	}
+
 	log.Printf("ACK header")
 	if err := c.sendPacket(ackHeader); err != nil {
 		return fmt.Errorf("failed to send ACK: %v", err)
