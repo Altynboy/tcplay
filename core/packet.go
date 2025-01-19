@@ -12,8 +12,9 @@ import (
 )
 
 func (c *TCPConnection) sendPacket(header *protocol.TCPHeader) error {
-	ipHeader := c.ipHeader.Marshall()
-
+	// c.ipHeader.TotalLen = uint16(40)
+	// ipHeader := c.ipHeader.Marshall()
+	// fmt.Printf("ip header %v\n", ipHeader)
 	header.Checksum = c.calculateChecksum(header, nil, c.srcIP, c.destIP)
 
 	log.Printf("Sending packet: %+v", header)
@@ -34,19 +35,21 @@ func (c *TCPConnection) sendPacket(header *protocol.TCPHeader) error {
 		Addr: c.destIP,
 	}
 
+	// log.Printf("addr: %+v", addr)
+	// log.Printf("socket %d", c.rawSocket)
 	// mssOption := []byte{0x02, 0x04, 0x05, 0xb4}
 	// buf = append(buf, mssOption...)
 
-	packet := append(ipHeader, buf...)
-
-	if err := syscall.Sendto(c.rawSocket, packet, 0, addr); err != nil {
+	// ipHeader = append(ipHeader, buf...)
+	// log.Printf("packet len is %d", len(ipHeader))
+	if err := syscall.Sendto(c.rawSocket, buf, 0, addr); err != nil {
 		return fmt.Errorf("failed to send packet: %v", err)
 	}
 
 	return nil
 }
 
-func (c *TCPConnection) ReceivePacket() (*protocol.TCPHeader, error) {
+func (c *TCPConnection) ReceiveIPPacket() (*protocol.TCPHeader, error) {
 	tcpHeaderData := ip.ReceivePacket(c.rawSocket)
 
 	tcpHeader := &protocol.TCPHeader{
@@ -69,8 +72,9 @@ func (c *TCPConnection) ReceivePacket() (*protocol.TCPHeader, error) {
 	return nil, fmt.Errorf("no packet send")
 }
 
-func (c *TCPConnection) ReceiveTCPPacket() (*protocol.TCPHeader, error) {
+func (c *TCPConnection) ReceivePacket() (*protocol.TCPHeader, error) {
 	buf := make([]byte, 65535)
+	log.Println("Start receiving packets")
 	for {
 		n, _, err := syscall.Recvfrom(c.rawSocket, buf, 0)
 		if err != nil {
@@ -82,12 +86,19 @@ func (c *TCPConnection) ReceiveTCPPacket() (*protocol.TCPHeader, error) {
 		}
 
 		ipHeaderLen := int(buf[0]&0x0F) * 4
-		if n < ipHeaderLen+20 {
-			continue
+		if c.state == SYN_SENT {
+			if n < ipHeaderLen+20 {
+				log.Println("Skip packet len is less than < ipheaderLen + 20")
+				continue
+			}
 		}
 
 		ipProtocol := buf[9]
 		if ipProtocol != 6 { // TCP protocol number
+			log.Println("Skip packet, protocol is not TCP")
+			log.Printf("Received packet protocol number: %v", buf[9])
+			log.Printf("Received packet: %v", buf)
+
 			continue
 		}
 

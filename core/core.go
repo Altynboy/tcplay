@@ -35,38 +35,48 @@ const (
 
 func CreateConnection(destPort uint16, destIP [4]byte) (*TCPConnection, error) {
 	sourcePort := uint16(49152 + rand.Intn(65535-49152+1))
-	srcIP := [4]byte{127, 0, 0, 1}
+	// srcIP := [4]byte{127, 0, 0, 1}
+	srcIP := [4]byte{192, 168, 1, 103}
 
 	// Create raw socket
-	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_RAW, syscall.IPPROTO_RAW)
+	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_STREAM, syscall.IPPROTO_TCP)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create socket: %v", err)
 	}
 
-	err = syscall.SetsockoptInt(fd, syscall.IPPROTO_IP, syscall.IP_HDRINCL, 1)
-	if err != nil {
-		log.Printf("Setsockopt error: %v\n", err)
-		return nil, fmt.Errorf("failed to Setsockopt: %v", err)
-	}
+	// err = syscall.SetsockoptInt(fd, syscall.IPPROTO_IP, syscall.IP_HDRINCL, 1)
+	// if err != nil {
+	// 	log.Printf("Setsockopt error: %v\n", err)
+	// 	return nil, fmt.Errorf("failed to Setsockopt: %v", err)
+	// }
 
 	// Create IP header
 	ipHeader := &ip.IPHeader{
 		Version:  4,                   // IPv4
 		IHL:      5,                   // 5 x 32-bit words
 		TOS:      0,                   // Type of Service
-		TotalLen: 20,                  // Header length
+		TotalLen: 40,                  // Header length
 		ID:       1,                   // Identification
 		TTL:      64,                  // Time to Live
 		Protocol: syscall.IPPROTO_TCP, // TCP protocol
 		SrcAddr:  srcIP,
-		DstAddr:  destIP,
+		DstAddr:  srcIP,
 	}
+
+	// localAddr := &syscall.SockaddrInet4{
+	// 	Port: int(sourcePort),
+	// 	Addr: srcIP,
+	// }
+
+	// if err := syscall.Bind(fd, localAddr); err != nil {
+	// 	return nil, fmt.Errorf("error binding client socket: %v", err)
+	// }
 
 	return &TCPConnection{
 		srcPort:    sourcePort,
 		destPort:   destPort,
 		srcIP:      srcIP,
-		destIP:     destIP,
+		destIP:     srcIP,
 		seqNum:     generateRandomSeqNum(),
 		ackNum:     0,
 		state:      CLOSED,
@@ -77,6 +87,18 @@ func CreateConnection(destPort uint16, destIP [4]byte) (*TCPConnection, error) {
 }
 
 func (c *TCPConnection) Connect() error {
+	addr := &syscall.SockaddrInet4{
+		Port: int(c.destPort),
+		Addr: c.destIP,
+	}
+	if err := syscall.Connect(c.rawSocket, addr); err != nil {
+		return err
+	}
+	c.state = ESTABLISHED
+	return nil
+}
+
+func (c *TCPConnection) RawConnect() error {
 	synHeader := &protocol.TCPHeader{
 		SourcePort:   c.srcPort,
 		DestPort:     c.destPort,
@@ -84,14 +106,6 @@ func (c *TCPConnection) Connect() error {
 		ControlFlags: protocol.SYN,
 		WindowSize:   65535,
 		HeaderLen:    5,
-	}
-
-	addr := &syscall.SockaddrInet4{
-		Port: 42069,
-		Addr: [4]byte{127, 0, 0, 1},
-	}
-	if err := syscall.Connect(c.rawSocket, addr); err != nil {
-		return err
 	}
 
 	log.Println("Prepare SYN packet for send")
@@ -154,7 +168,7 @@ func (c *TCPConnection) SendMessage(data []byte) error {
 		SeqNum:       c.seqNum,
 		ControlFlags: protocol.PSH | protocol.ACK,
 		WindowSize:   0xffff,
-		HeaderLen:    5,
+		HeaderLen:    51,
 	}
 
 	if err := c.sendPacketWithPayload(dataHeader, data); err != nil {

@@ -3,6 +3,7 @@ package ip
 import (
 	"encoding/binary"
 	"fmt"
+	"log"
 	"syscall"
 )
 
@@ -52,9 +53,11 @@ func (header *IPHeader) Marshall() []byte {
 	copy(headerBytes[12:16], header.SrcAddr[:])
 	copy(headerBytes[16:20], header.DstAddr[:])
 
+	binary.BigEndian.PutUint16(headerBytes[10:], 0)
 	header.Checksum = CalculateChecksum(headerBytes)
 	binary.BigEndian.PutUint16(headerBytes[10:], header.Checksum)
 
+	log.Printf("IP Header packet: %+v\n", header)
 	return headerBytes
 }
 
