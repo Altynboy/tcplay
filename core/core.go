@@ -39,7 +39,7 @@ func CreateConnection(destPort uint16, destIP [4]byte) (*TCPConnection, error) {
 	srcIP := [4]byte{192, 168, 1, 103}
 
 	// Create raw socket
-	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_STREAM, syscall.IPPROTO_TCP)
+	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_RAW, syscall.IPPROTO_TCP)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create socket: %v", err)
 	}
@@ -179,6 +179,20 @@ func (c *TCPConnection) SendMessage(data []byte) error {
 }
 
 func (c *TCPConnection) Close() error {
+	log.Println("-----CLOSE CONN-----")
+	if c.state != ESTABLISHED {
+		return fmt.Errorf("connection is not established")
+	}
+
+	if err := syscall.Close(c.rawSocket); err != nil {
+		return fmt.Errorf("failed to close socket: %v", err)
+	}
+
+	c.state = CLOSED
+	return nil
+}
+
+func (c *TCPConnection) RawClose() error {
 	log.Println("-----CLOSE CONN-----")
 	if c.state != ESTABLISHED {
 		return fmt.Errorf("connection is not established")

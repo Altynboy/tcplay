@@ -42,8 +42,14 @@ func (c *TCPConnection) sendPacket(header *protocol.TCPHeader) error {
 
 	// ipHeader = append(ipHeader, buf...)
 	// log.Printf("packet len is %d", len(ipHeader))
-	if err := syscall.Sendto(c.rawSocket, buf, 0, addr); err != nil {
-		return fmt.Errorf("failed to send packet: %v", err)
+	if c.state == ESTABLISHED {
+		if _, err := syscall.Write(c.rawSocket, buf); err != nil {
+			return fmt.Errorf("failed to send packet: %v", err)
+		}
+	} else {
+		if err := syscall.Sendto(c.rawSocket, buf, 0, addr); err != nil {
+			return fmt.Errorf("failed to send packet: %v", err)
+		}
 	}
 
 	return nil
@@ -76,9 +82,20 @@ func (c *TCPConnection) ReceivePacket() (*protocol.TCPHeader, error) {
 	buf := make([]byte, 65535)
 	log.Println("Start receiving packets")
 	for {
-		n, _, err := syscall.Recvfrom(c.rawSocket, buf, 0)
-		if err != nil {
-			return nil, fmt.Errorf("failed to receive packet: %v", err)
+		var n int
+		var err error
+		if c.state == ESTABLISHED {
+			n, err = syscall.Read(c.rawSocket, buf)
+			if err != nil {
+				return nil, fmt.Errorf("failed to receive packet: %v", err)
+			}
+		} else {
+			var from syscall.Sockaddr
+			n, from, err = syscall.Recvfrom(c.rawSocket, buf, 0)
+			if err != nil {
+				return nil, fmt.Errorf("failed to receive packet: %v", err)
+			}
+			log.Printf("packet from: %+v", from)
 		}
 
 		if n < 20 {
@@ -97,7 +114,7 @@ func (c *TCPConnection) ReceivePacket() (*protocol.TCPHeader, error) {
 		if ipProtocol != 6 { // TCP protocol number
 			log.Println("Skip packet, protocol is not TCP")
 			log.Printf("Received packet protocol number: %v", buf[9])
-			log.Printf("Received packet: %v", buf)
+			// log.Printf("Received packet: %v", buf)
 
 			continue
 		}
@@ -130,13 +147,18 @@ func (c *TCPConnection) sendPacketWithPayload(header *protocol.TCPHeader, payloa
 
 	packet := append(headerBytes, payload...)
 
-	addr := &syscall.SockaddrInet4{
-		Port: int(c.destPort),
-		Addr: c.destIP,
-	}
-
-	if err := syscall.Sendto(c.rawSocket, packet, 0, addr); err != nil {
-		return fmt.Errorf("failed to send packet with payload: %v", err)
+	if c.state == ESTABLISHED {
+		if _, err := syscall.Write(c.rawSocket, packet); err != nil {
+			return fmt.Errorf("failed to send packet with payload: %v", err)
+		}
+	} else {
+		addr := &syscall.SockaddrInet4{
+			Port: int(c.destPort),
+			Addr: c.destIP,
+		}
+		if err := syscall.Sendto(c.rawSocket, packet, 0, addr); err != nil {
+			return fmt.Errorf("failed to send packet with payload: %v", err)
+		}
 	}
 
 	return nil
